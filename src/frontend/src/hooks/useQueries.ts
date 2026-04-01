@@ -46,6 +46,7 @@ export function useCategories() {
     queryKey: ["categories"],
     queryFn: async () => (actor ? actor.getAllCategories() : []),
     enabled: !!actor && !isFetching,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -55,6 +56,7 @@ export function useTasks() {
     queryKey: ["tasks"],
     queryFn: async () => (actor ? actor.getAllTasks() : []),
     enabled: !!actor && !isFetching,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -74,6 +76,7 @@ export function useAppSettings() {
             maxWeeklyFreq: 6n,
           },
     enabled: !!actor && !isFetching,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -88,13 +91,14 @@ export function useCompletionsInRange(
     queryFn: async () =>
       actor ? actor.getTaskCompletionsInRange(startNs, endNs) : [],
     enabled: !!actor && !isFetching && enabled,
+    placeholderData: (prev) => prev,
   });
 }
 
-// Wide range for dashboard (30 days back to now)
+// Wide range for dashboard (30 days back to start of today)
 export function useDashboardCompletions() {
-  const start = BigInt(Date.now() - 30 * 24 * 60 * 60 * 1000) * 1_000_000n;
-  const end = nowNs();
+  const start = startOfDayNs(30);
+  const end = endOfDayNs(0);
   return useCompletionsInRange(start, end);
 }
 
@@ -105,8 +109,8 @@ export function useTodayCompletions() {
 
 // This week completions (last 7 days)
 export function useWeekCompletions() {
-  const start = BigInt(Date.now() - 7 * 24 * 60 * 60 * 1000) * 1_000_000n;
-  return useCompletionsInRange(start, nowNs());
+  const start = startOfDayNs(7);
+  return useCompletionsInRange(start, endOfDayNs(0));
 }
 
 // ── Computation helpers ──────────────────────────────────────────────────────
