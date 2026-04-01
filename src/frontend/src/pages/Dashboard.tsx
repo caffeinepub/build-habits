@@ -40,7 +40,7 @@ import {
   useTasks,
 } from "../hooks/useQueries";
 
-// ── Donut chart with center label ───────────────────────────────────────────
+// ── Donut chart with center label ─────────────────────────────────────────────────────
 function DonutChart({
   pct,
   color,
@@ -85,7 +85,7 @@ function DonutChart({
   );
 }
 
-// ── Bar chart ────────────────────────────────────────────────────────────────
+// ── Bar chart ────────────────────────────────────────────────────────────────────
 function CompletionBar({
   data,
   label,
@@ -133,7 +133,7 @@ function CompletionBar({
   );
 }
 
-// ── Drill-down modal ──────────────────────────────────────────────────────────
+// ── Drill-down modal ───────────────────────────────────────────────────────────────────
 function DrillDownModal({
   open,
   onClose,
@@ -251,22 +251,23 @@ function DrillDownModal({
   );
 }
 
-// ── Dashboard page ────────────────────────────────────────────────────────────
+// ── Dashboard page ────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { data: settings } = useAppSettings();
   const { data: tasks = [], isLoading: tasksLoading } = useTasks();
   const { data: allCompletions = [], isLoading: completionsLoading } =
     useDashboardCompletions();
-  const { data: categories = [] } = useCategories();
+  const { data: categories = [], isLoading: categoriesLoading } =
+    useCategories();
 
   const [dailyModalOpen, setDailyModalOpen] = useState(false);
   const [weeklyModalOpen, setWeeklyModalOpen] = useState(false);
 
   const red = Number(settings?.redThreshold ?? 60n);
   const amber = Number(settings?.amberThreshold ?? 80n);
-  const daysPerWeek = Number(settings?.daysPerWeek ?? 7n);
   const dailyBarDays = Number(settings?.dailyBarDays ?? 6n);
   const weeklyBarWeeks = Number(settings?.weeklyBarWeeks ?? 4n);
+  const daysPerWeek = Number(settings?.daysPerWeek ?? 7n);
 
   const dailyTasks = tasks.filter(
     (t) => t.frequencyType === FrequencyType.daily,
@@ -279,11 +280,12 @@ export default function Dashboard() {
     () =>
       computeDailyFactor(
         allCompletions,
-        dailyTasks,
+        tasks,
+        categories,
         startOfDayNs(0),
         endOfDayNs(0),
       ),
-    [allCompletions, dailyTasks],
+    [allCompletions, tasks, categories],
   );
   const dailyColor = getThresholdColor(todayDailyPct, red, amber);
 
@@ -293,11 +295,11 @@ export default function Dashboard() {
     return computeWeeklyFactor(
       allCompletions,
       tasks,
-      daysPerWeek,
+      categories,
       weekStart,
       weekEnd,
     );
-  }, [allCompletions, tasks, daysPerWeek]);
+  }, [allCompletions, tasks, categories]);
   const weeklyColor = getThresholdColor(weeklyPct, red, amber);
 
   const dailyBarData = useMemo(() => {
@@ -307,7 +309,8 @@ export default function Dashboard() {
       d.setDate(d.getDate() - daysAgo);
       const pct = computeDailyFactor(
         allCompletions,
-        dailyTasks,
+        tasks,
+        categories,
         startOfDayNs(daysAgo),
         endOfDayNs(daysAgo),
       );
@@ -320,7 +323,7 @@ export default function Dashboard() {
         .replace(",", "");
       return { label, pct, color: getThresholdColor(pct, red, amber) };
     }).reverse();
-  }, [allCompletions, dailyTasks, dailyBarDays, red, amber]);
+  }, [allCompletions, tasks, categories, dailyBarDays, red, amber]);
 
   const weeklyBarData = useMemo(() => {
     return Array.from({ length: weeklyBarWeeks }, (_, i) => {
@@ -333,7 +336,7 @@ export default function Dashboard() {
       const pct = computeWeeklyFactor(
         allCompletions,
         tasks,
-        daysPerWeek,
+        categories,
         weekStart,
         weekEnd,
       );
@@ -341,7 +344,7 @@ export default function Dashboard() {
       const label = `Wk ${d.toLocaleDateString("en", { month: "short", day: "numeric" })}`;
       return { label, pct, color: getThresholdColor(pct, red, amber) };
     }).reverse();
-  }, [allCompletions, tasks, daysPerWeek, weeklyBarWeeks, red, amber]);
+  }, [allCompletions, tasks, categories, weeklyBarWeeks, red, amber]);
 
   // Modal data
   const todayStart = startOfDayNs(0);
@@ -390,7 +393,7 @@ export default function Dashboard() {
     return count < target;
   });
 
-  const isLoading = tasksLoading || completionsLoading;
+  const isLoading = tasksLoading || completionsLoading || categoriesLoading;
 
   return (
     <div>

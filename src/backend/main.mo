@@ -8,64 +8,30 @@ import AccessControl "authorization/access-control";
 import MixinAuthorization "authorization/MixinAuthorization";
 
 actor {
-  // Initialize the access control system
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
 
-  // User Profile type
-  public type UserProfile = {
-    name : Text;
-  };
+  public type UserProfile = { name : Text };
 
-  // Data types
-  type Category = {
-    id : Nat;
-    name : Text;
-    weight : Nat;
-  };
+  type Category = { id : Nat; name : Text; weight : Nat };
+  type FrequencyType = { #daily; #weekly };
+  type Task = { id : Nat; name : Text; categoryId : Nat; frequencyType : FrequencyType; weeklyCount : Nat };
+  type TaskCompletion = { id : Nat; taskId : Nat; completedAt : Int };
+  type AppSettings = { redThreshold : Nat; amberThreshold : Nat; dailyBarDays : Nat; weeklyBarWeeks : Nat; daysPerWeek : Nat; maxWeeklyFreq : Nat };
+  type UserData = { categories : Map.Map<Nat, Category>; tasks : Map.Map<Nat, Task>; taskCompletions : Map.Map<Nat, TaskCompletion>; nextId : Nat; appSettings : AppSettings };
 
-  type FrequencyType = {
-    #daily;
-    #weekly;
-  };
-
-  type Task = {
-    id : Nat;
-    name : Text;
-    categoryId : Nat;
-    frequencyType : FrequencyType;
-    weeklyCount : Nat;
-  };
-
-  type TaskCompletion = {
-    id : Nat;
-    taskId : Nat;
-    completedAt : Int;
-  };
-
-  type AppSettings = {
-    redThreshold : Nat;
-    amberThreshold : Nat;
-    dailyBarDays : Nat;
-    weeklyBarWeeks : Nat;
-    daysPerWeek : Nat;
-    maxWeeklyFreq : Nat;
-  };
-
-  // User-scoped data storage
-  type UserData = {
-    categories : Map.Map<Nat, Category>;
-    tasks : Map.Map<Nat, Task>;
-    taskCompletions : Map.Map<Nat, TaskCompletion>;
-    nextId : Nat;
-    appSettings : AppSettings;
-  };
-
-  // Storage per user
   let userDataStore = Map.empty<Principal, UserData>();
   let userProfiles = Map.empty<Principal, UserProfile>();
 
-  // Get or initialize user data
+  // Auto-register non-anonymous callers as #user on first use
+  func requireAuth(caller : Principal) {
+    if (caller.isAnonymous()) { Runtime.trap("Unauthorized: Must be logged in") };
+    switch (accessControlState.userRoles.get(caller)) {
+      case (null) { accessControlState.userRoles.add(caller, #user) };
+      case (_) {};
+    };
+  };
+
   func getUserData(user : Principal) : UserData {
     switch (userDataStore.get(user)) {
       case (?data) { data };
@@ -75,14 +41,7 @@ actor {
           tasks = Map.empty<Nat, Task>();
           taskCompletions = Map.empty<Nat, TaskCompletion>();
           nextId = 0;
-          appSettings = {
-            redThreshold = 50;
-            amberThreshold = 75;
-            dailyBarDays = 7;
-            weeklyBarWeeks = 4;
-            daysPerWeek = 7;
-            maxWeeklyFreq = 7;
-          };
+          appSettings = { redThreshold = 50; amberThreshold = 75; dailyBarDays = 7; weeklyBarWeeks = 4; daysPerWeek = 7; maxWeeklyFreq = 7 };
         };
         userDataStore.add(user, newData);
         newData;
@@ -90,62 +49,36 @@ actor {
     };
   };
 
-  // Update user data
-  func setUserData(user : Principal, data : UserData) {
-    userDataStore.add(user, data);
-  };
+  func setUserData(user : Principal, data : UserData) { userDataStore.add(user, data) };
 
-  // Get new ID for a user
   func getNextId(user : Principal) : Nat {
     let data = getUserData(user);
     let id = data.nextId;
-    let updatedData = {
-      categories = data.categories;
-      tasks = data.tasks;
-      taskCompletions = data.taskCompletions;
-      nextId = data.nextId + 1;
-      appSettings = data.appSettings;
-    };
-    setUserData(user, updatedData);
+    setUserData(user, { categories = data.categories; tasks = data.tasks; taskCompletions = data.taskCompletions; nextId = data.nextId + 1; appSettings = data.appSettings });
     id;
   };
 
-  // User Profile Management
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view profiles");
-    };
+    requireAuth(caller);
     userProfiles.get(caller);
   };
 
   public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
-    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Can only view your own profile");
-    };
+    requireAuth(caller);
+    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) { Runtime.trap("Unauthorized") };
     userProfiles.get(user);
   };
 
   public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can save profiles");
-    };
+    requireAuth(caller);
     userProfiles.add(caller, profile);
   };
 
-  // Category CRUD
   public shared ({ caller }) func createCategory(name : Text, weight : Nat) : async Category {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can create categories");
-    };
+    requireAuth(caller);
     if (weight > 100) { Runtime.trap("Weight cannot exceed 100") };
-    
     let id = getNextId(caller);
-    let category : Category = {
-      id;
-      name;
-      weight;
-    };
-    
+    let category : Category = { id; name; weight };
     let data = getUserData(caller);
     data.categories.add(id, category);
     setUserData(caller, data);
@@ -153,58 +86,35 @@ actor {
   };
 
   public query ({ caller }) func getCategory(id : Nat) : async ?Category {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view categories");
-    };
-    let data = getUserData(caller);
-    data.categories.get(id);
+    requireAuth(caller);
+    getUserData(caller).categories.get(id);
   };
 
   public query ({ caller }) func getAllCategories() : async [Category] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view categories");
-    };
-    let data = getUserData(caller);
-    data.categories.values().toArray();
+    requireAuth(caller);
+    getUserData(caller).categories.values().toArray();
   };
 
   public shared ({ caller }) func updateCategory(category : Category) : async Category {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update categories");
-    };
+    requireAuth(caller);
     let data = getUserData(caller);
     switch (data.categories.get(category.id)) {
       case (null) { Runtime.trap("Category not found") };
-      case (_) {
-        data.categories.add(category.id, category);
-        setUserData(caller, data);
-        category;
-      };
+      case (_) { data.categories.add(category.id, category); setUserData(caller, data); category };
     };
   };
 
   public shared ({ caller }) func deleteCategory(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete categories");
-    };
+    requireAuth(caller);
     let data = getUserData(caller);
     data.categories.remove(id);
     setUserData(caller, data);
   };
 
-  // Task CRUD
   public shared ({ caller }) func createTask(name : Text, categoryId : Nat, frequencyType : FrequencyType, weeklyCount : Nat) : async Task {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can create tasks");
-    };
+    requireAuth(caller);
     let id = getNextId(caller);
-    let task : Task = {
-      id;
-      name;
-      categoryId;
-      frequencyType;
-      weeklyCount;
-    };
+    let task : Task = { id; name; categoryId; frequencyType; weeklyCount };
     let data = getUserData(caller);
     data.tasks.add(id, task);
     setUserData(caller, data);
@@ -212,56 +122,35 @@ actor {
   };
 
   public query ({ caller }) func getTask(id : Nat) : async ?Task {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view tasks");
-    };
-    let data = getUserData(caller);
-    data.tasks.get(id);
+    requireAuth(caller);
+    getUserData(caller).tasks.get(id);
   };
 
   public query ({ caller }) func getAllTasks() : async [Task] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view tasks");
-    };
-    let data = getUserData(caller);
-    data.tasks.values().toArray();
+    requireAuth(caller);
+    getUserData(caller).tasks.values().toArray();
   };
 
   public shared ({ caller }) func updateTask(task : Task) : async Task {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update tasks");
-    };
+    requireAuth(caller);
     let data = getUserData(caller);
     switch (data.tasks.get(task.id)) {
       case (null) { Runtime.trap("Task not found") };
-      case (_) {
-        data.tasks.add(task.id, task);
-        setUserData(caller, data);
-        task;
-      };
+      case (_) { data.tasks.add(task.id, task); setUserData(caller, data); task };
     };
   };
 
   public shared ({ caller }) func deleteTask(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete tasks");
-    };
+    requireAuth(caller);
     let data = getUserData(caller);
     data.tasks.remove(id);
     setUserData(caller, data);
   };
 
-  // TaskCompletion CRUD
   public shared ({ caller }) func addTaskCompletion(taskId : Nat, completedAt : Int) : async TaskCompletion {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can add task completions");
-    };
+    requireAuth(caller);
     let id = getNextId(caller);
-    let completion : TaskCompletion = {
-      id;
-      taskId;
-      completedAt;
-    };
+    let completion : TaskCompletion = { id; taskId; completedAt };
     let data = getUserData(caller);
     data.taskCompletions.add(id, completion);
     setUserData(caller, data);
@@ -269,51 +158,30 @@ actor {
   };
 
   public shared ({ caller }) func deleteTaskCompletion(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete task completions");
-    };
+    requireAuth(caller);
     let data = getUserData(caller);
     data.taskCompletions.remove(id);
     setUserData(caller, data);
   };
 
   public query ({ caller }) func getTaskCompletionsInRange(startTimestamp : Int, endTimestamp : Int) : async [TaskCompletion] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view task completions");
-    };
+    requireAuth(caller);
     let data = getUserData(caller);
     let completionsList = List.empty<TaskCompletion>();
-    data.taskCompletions.values().forEach(
-      func(completion) {
-        if (completion.completedAt >= startTimestamp and completion.completedAt <= endTimestamp) {
-          completionsList.add(completion);
-        };
-      }
-    );
+    data.taskCompletions.values().forEach(func(c) {
+      if (c.completedAt >= startTimestamp and c.completedAt <= endTimestamp) { completionsList.add(c) };
+    });
     completionsList.toArray();
   };
 
-  // AppSettings
   public query ({ caller }) func getAppSettings() : async AppSettings {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view app settings");
-    };
-    let data = getUserData(caller);
-    data.appSettings;
+    requireAuth(caller);
+    getUserData(caller).appSettings;
   };
 
   public shared ({ caller }) func updateAppSettings(settings : AppSettings) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update app settings");
-    };
+    requireAuth(caller);
     let data = getUserData(caller);
-    let updatedData = {
-      categories = data.categories;
-      tasks = data.tasks;
-      taskCompletions = data.taskCompletions;
-      nextId = data.nextId;
-      appSettings = settings;
-    };
-    setUserData(caller, updatedData);
+    setUserData(caller, { categories = data.categories; tasks = data.tasks; taskCompletions = data.taskCompletions; nextId = data.nextId; appSettings = settings });
   };
 };

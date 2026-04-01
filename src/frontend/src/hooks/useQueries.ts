@@ -120,46 +120,106 @@ export function getThresholdColor(
   return "#1FA373";
 }
 
+/**
+ * Daily Completion Factor:
+ * For each category: factor = tasks completed today / daily tasks in that category
+ * Overall = weighted average across categories (by category weight)
+ * Categories with no daily tasks are excluded from the weighted average.
+ */
 export function computeDailyFactor(
   completions: TaskCompletion[],
-  dailyTasks: Task[],
+  tasks: Task[],
+  categories: Category[],
   dayStartNs: bigint,
   dayEndNs: bigint,
-): number {
-  if (dailyTasks.length === 0) return 0;
-  const dayCompletions = completions.filter(
-    (c) => c.completedAt >= dayStartNs && c.completedAt <= dayEndNs,
-  );
-  const dailyTaskIds = new Set(dailyTasks.map((t) => t.id));
-  const completed = new Set(
-    dayCompletions
-      .filter((c) => dailyTaskIds.has(c.taskId))
-      .map((c) => c.taskId),
-  );
-  return Math.round((completed.size / dailyTasks.length) * 100);
-}
-
-export function computeWeeklyFactor(
-  completions: TaskCompletion[],
-  tasks: Task[],
-  daysPerWeek: number,
-  weekStartNs: bigint,
-  weekEndNs: bigint,
 ): number {
   const dailyTasks = tasks.filter(
     (t) => t.frequencyType === FrequencyType.daily,
   );
-  const weeklyTasks = tasks.filter(
-    (t) => t.frequencyType === FrequencyType.weekly,
+  if (dailyTasks.length === 0) return 0;
+
+  const dayCompletions = completions.filter(
+    (c) => c.completedAt >= dayStartNs && c.completedAt <= dayEndNs,
   );
-  const planned =
-    dailyTasks.length * daysPerWeek +
-    weeklyTasks.reduce((sum, t) => sum + Number(t.weeklyCount), 0);
-  if (planned === 0) return 0;
+  const completedTaskIds = new Set(
+    dayCompletions.map((c) => c.taskId.toString()),
+  );
+
+  let weightedSum = 0;
+  let weightUsed = 0;
+
+  for (const cat of categories) {
+    const catDailyTasks = dailyTasks.filter(
+      (t) => t.categoryId.toString() === cat.id.toString(),
+    );
+    if (catDailyTasks.length === 0) continue;
+
+    const completedCount = catDailyTasks.filter((t) =>
+      completedTaskIds.has(t.id.toString()),
+    ).length;
+    const catFactor = completedCount / catDailyTasks.length;
+    const w = Number(cat.weight);
+    weightedSum += catFactor * w;
+    weightUsed += w;
+  }
+
+  if (weightUsed === 0) return 0;
+  return Math.round((weightedSum / weightUsed) * 100);
+}
+
+/**
+ * Weekly Completion Factor:
+ * For each category:
+ *   planned = (daily tasks in category * 7) + sum(weeklyCount for weekly tasks in category)
+ *   completed = total completions for tasks in that category over the last 7 days
+ *   factor = completed / planned  (can exceed 1 if over-achieved)
+ * Overall = weighted average across categories (by category weight)
+ * Categories with no planned tasks are excluded from the weighted average.
+ */
+export function computeWeeklyFactor(
+  completions: TaskCompletion[],
+  tasks: Task[],
+  categories: Category[],
+  weekStartNs: bigint,
+  weekEndNs: bigint,
+): number {
   const weekCompletions = completions.filter(
     (c) => c.completedAt >= weekStartNs && c.completedAt <= weekEndNs,
   );
-  return Math.min(100, Math.round((weekCompletions.length / planned) * 100));
+
+  const completionCountByTask = new Map<string, number>();
+  for (const c of weekCompletions) {
+    const key = c.taskId.toString();
+    completionCountByTask.set(key, (completionCountByTask.get(key) ?? 0) + 1);
+  }
+
+  let weightedSum = 0;
+  let weightUsed = 0;
+
+  for (const cat of categories) {
+    const catTasks = tasks.filter(
+      (t) => t.categoryId.toString() === cat.id.toString(),
+    );
+    if (catTasks.length === 0) continue;
+
+    const planned = catTasks.reduce((sum, t) => {
+      if (t.frequencyType === FrequencyType.daily) return sum + 7;
+      return sum + Number(t.weeklyCount);
+    }, 0);
+    if (planned === 0) continue;
+
+    const completed = catTasks.reduce((sum, t) => {
+      return sum + (completionCountByTask.get(t.id.toString()) ?? 0);
+    }, 0);
+
+    const catFactor = completed / planned; // can exceed 1 for over-achievement
+    const w = Number(cat.weight);
+    weightedSum += catFactor * w;
+    weightUsed += w;
+  }
+
+  if (weightUsed === 0) return 0;
+  return Math.min(100, Math.round((weightedSum / weightUsed) * 100));
 }
 
 // ── Mutations ────────────────────────────────────────────────────────────────
