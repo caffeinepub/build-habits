@@ -20,8 +20,8 @@ actor {
   type AppSettings = { redThreshold : Nat; amberThreshold : Nat; dailyBarDays : Nat; weeklyBarWeeks : Nat; daysPerWeek : Nat; maxWeeklyFreq : Nat };
   type UserData = { categories : Map.Map<Nat, Category>; tasks : Map.Map<Nat, Task>; taskCompletions : Map.Map<Nat, TaskCompletion>; nextId : Nat; appSettings : AppSettings };
 
-  let userDataStore = Map.empty<Principal, UserData>();
-  let userProfiles = Map.empty<Principal, UserProfile>();
+  stable let userDataStore = Map.empty<Principal, UserData>();
+  stable let userProfiles = Map.empty<Principal, UserProfile>();
 
   // Auto-register non-anonymous callers as #user on first use
   func requireAuth(caller : Principal) {
